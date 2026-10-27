@@ -20,8 +20,11 @@ def _plural(count, word, suffix="s"):
 
 
 def _wrap(text, indent="    "):
+    # Not on hyphens: every other line here quotes a schedule or a filename,
+    # and `'0 3 * * SAT-` at the end of a line is not quoting anything.
     return textwrap.fill(text, width=88, initial_indent=indent,
-                         subsequent_indent=indent)
+                         subsequent_indent=indent, break_on_hyphens=False,
+                         break_long_words=False)
 
 
 def render(audit, terse=False):

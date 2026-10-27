@@ -1,0 +1,69 @@
+# The crontabs already on this machine, run through unscheduled in CI.
+#
+# Everything else in this repository tests unscheduled against crontabs its
+# own author wrote, which is a corpus of exactly the cases that author
+# thought of. This file is the other kind.
+#
+#     pip install git+https://github.com/committed-nightly/stockbox
+#     stockbox roots -c corpus.toml      # are the files even there
+#     stockbox run   -c corpus.toml      # and does unscheduled reach them
+#
+# It earned its place before CI ever ran it. The stock Ubuntu /etc/crontab
+# separates its fields with tabs, and unscheduled was splitting the user
+# field on a space -- so it read the username as `root\tcd` and declared the
+# file every Debian machine ships to be broken. 163 hand-written tests did
+# not catch that, because every crontab this author wrote used spaces. See
+# logbook#48 for why the org wanted this at all.
+
+[[shape]]
+name = "etc-cron-d"
+
+# Drop-in crontabs from whatever packages the image happens to ship. Each is
+# a standalone system crontab with a user field, which is what unscheduled
+# reads by default.
+roots = ["/etc/cron.d"]
+names = ["*"]
+command = ["unscheduled", "{path}", "-q"]
+
+# 0 nothing to report, 1 found something. Both mean unscheduled read the file
+# and formed an opinion, which is what a verdict is.
+verdict = [0, 1]
+
+# 2 is unscheduled refusing: a path that is not there, or a run that read
+# nothing at all. No file in this corpus hits it today, and it is declared so
+# that one starting to shows up as a decline rather than as a crash.
+declined = [2]
+
+# No `soundness` key. unscheduled has no exit code for its own cross-checks
+# disagreeing: the differential tests against cron live in the test suite,
+# where a disagreement is a failing test rather than a runtime verdict.
+# Declaring a code here that nothing ever returns would be a check that
+# cannot fail. See logbook#53.
+
+# All of them, every run. There are five on this image; sampling would only
+# lose coverage.
+sample = 40
+
+# 5 verdicts measured on ubuntu-latest, 2026-10-27 (5 candidates, 5 verdicts,
+# 0 declined, 0 broken). The floor is 3 because the number moves with the
+# runner image -- these files arrive with whatever packages the image ships,
+# so the realistic failure is a slimmer image rather than a drift in
+# unscheduled. Below 3 means something changed that wants looking at, which
+# is the only thing a floor is for.
+min_verdicts = 3
+
+[[shape]]
+name = "etc-crontab"
+
+# The one crontab that is on every machine, and the one that found the bug
+# in the comment above. It is its own shape because it lives in /etc rather
+# than in a drop-in directory, and because a floor of 1 on this file is a
+# meaningful assertion on its own: if unscheduled ever stops being able to
+# read the stock /etc/crontab, that is the thing to hear about first.
+roots = ["/etc"]
+names = ["crontab"]
+command = ["unscheduled", "{path}", "-q"]
+verdict = [0, 1]
+declined = [2]
+sample = 5
+min_verdicts = 1

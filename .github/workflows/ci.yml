@@ -1,0 +1,179 @@
+name: CI
+
+'on':
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - run: pip install -e ".[dev]"
+      - run: pytest --junit-xml=results.xml
+
+      # Most of what makes this repository trustworthy is in the tests that
+      # ask cron directly, and those skip themselves when cron, sudo or
+      # unshare is missing. A green run that skipped all of them tested the
+      # author's opinion of cron and nothing else.
+      - name: the tests that ask cron actually ran
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("results.xml").getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          skipped = int(suite.get("skipped", 0))
+          total = int(suite.get("tests", 0))
+          print(f"{total} tests, {skipped} skipped")
+          assert total >= 150, f"only {total} tests collected"
+          # A minute boundary can legitimately skip one firing case.
+          assert skipped <= 2, f"{skipped} tests skipped -- cron was not asked"
+          PY
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install ruff
+      - run: ruff check .
+
+      # logbook#23 and logbook#40: a workflow that never compiles produces no
+      # jobs, no logs and no annotations, and most of the org does not check.
+      # ubuntu-latest ships shellcheck, so this covers the `run:` scripts and
+      # the two probe scripts too.
+      - name: actionlint
+        run: |
+          set -euo pipefail
+          version=1.7.7
+          curl -fsSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
+          tar -xzf actionlint.tar.gz actionlint
+          shellcheck --version | head -2
+          ./actionlint -no-color -oneline
+
+      - name: shellcheck the probe scripts
+        run: shellcheck probe/*.sh
+
+  corpus:
+    # Every other job runs unscheduled over crontabs its own author wrote.
+    # This one runs it over the ones the runner image already ships, and
+    # fails when that corpus stops testing anything. A count of files found
+    # is not evidence -- stockbox asserts on verdicts. See corpus.toml, and
+    # logbook#48 for why the org wanted this.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e . git+https://github.com/committed-nightly/stockbox
+
+      # Printed before the run, so a failure below can be read against what
+      # was on the box rather than guessed at from an exit code.
+      - run: stockbox roots -c corpus.toml
+      - run: stockbox run -c corpus.toml
+
+  dogfood:
+    # The README quotes these runs. If the examples or the tool change, this
+    # is the job that notices before a reader does.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e .
+
+      - name: the examples report what the README says they report
+        run: |
+          set -euo pipefail
+          unscheduled examples/cron.d examples/cron.daily > out.txt && status=0 || status=$?
+          cat out.txt
+          test "$status" -eq 1
+
+          # Every kind the README's table names.
+          for kind in never-fires file-rejected file-not-read command-truncated \
+                      command-not-found day-fields-ored needs-boot; do
+            grep -qF "$kind" out.txt
+          done
+
+          # The exact places, so a renumbered example is caught.
+          for place in 'examples/cron.d/weekend:6' 'examples/cron.d/nightly:6' \
+                       'examples/cron.d/stamp:3' 'examples/cron.d/tools:2' \
+                       'examples/cron.d/anniversary:3' 'examples/cron.d/report.sh' \
+                       'examples/cron.daily/cleanup.sh' \
+                       'examples/cron.daily/rotate-reports'; do
+            grep -qF "$place" out.txt
+          done
+
+      - name: the two blocks the README quotes, byte for byte
+        run: |
+          set -euo pipefail
+          unscheduled examples/cron.d/weekend > weekend.txt && s=0 || s=$?
+          test "$s" -eq 1
+          cat weekend.txt
+          # Quoted in full in the README, so the wrapping matters too.
+          grep -qF "    the day-of-week field 'SAT-SUN' expands to nothing -- the schedule is '0 3 * *" weekend.txt
+          grep -qF 'Found 1 job that never runs as written. Read 1 file, holding 1 job cron keeps.' weekend.txt
+
+          unscheduled examples/cron.d/nightly > nightly.txt && s=0 || s=$?
+          test "$s" -eq 1
+          cat nightly.txt
+          grep -qF 'cron refuses the whole file over this line: hour: 25 is outside 0-23 -- and it takes' nightly.txt
+          grep -qF 'Found 1 file cron refuses outright, losing 2 job lines that are themselves fine.' nightly.txt
+
+      - name: a clean crontab exits 0 and says so
+        run: |
+          set -euo pipefail
+          printf '0 3 * * * root /usr/bin/find /tmp -mtime +7 -delete\n' > clean
+          unscheduled clean | tee clean.txt
+          grep -qF 'Every job unscheduled can check will run.' clean.txt
+
+      - name: a run that read nothing is not reported as clean
+        run: |
+          set -euo pipefail
+          mkdir -p locked && printf '0 3 * * * root /bin/true\n' > locked/jobs
+          chmod 000 locked
+          unscheduled locked > out.txt 2> err.txt && s=0 || s=$?
+          test "$s" -eq 2
+          cat err.txt
+          grep -qF 'not a clean result' err.txt
+          # The finding that matters: no clean bill of health on stdout.
+          test ! -s out.txt
+          chmod 755 locked
+
+      - name: a copy of cron.d is not failed for its ownership
+        run: |
+          set -euo pipefail
+          # Nothing in a checkout is root-owned. If this ever starts
+          # reporting, unscheduled has become unusable on a config repo --
+          # which is most of where someone would want to run it.
+          mkdir -p copy/cron.d
+          printf '0 3 * * * root /usr/bin/find /tmp -delete\n' > copy/cron.d/jobs
+          chmod 664 copy/cron.d/jobs
+          unscheduled copy/cron.d | tee copy.txt
+          grep -qF 'Every job unscheduled can check will run.' copy.txt
+          # And the counterfactual, so the step above cannot pass by
+          # unscheduled having stopped looking at names: the same directory
+          # with a name cron will not read.
+          mv copy/cron.d/jobs copy/cron.d/jobs.sh
+          unscheduled copy/cron.d > named.txt && s=0 || s=$?
+          cat named.txt
+          test "$s" -eq 1
+          grep -qF 'file-not-read' named.txt
