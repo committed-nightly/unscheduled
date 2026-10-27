@@ -1,0 +1,6 @@
+# Three jobs, one of which has an hour of 25. cron refuses the whole file
+# over that line, so none of these three runs -- including the two above it.
+PATH=/usr/local/bin:/usr/bin:/bin
+0 1 * * * root /usr/bin/find /tmp -mtime +7 -delete
+30 1 * * * root /usr/local/bin/reindex
+0 25 * * * root /usr/bin/logrotate -f /etc/logrotate.conf

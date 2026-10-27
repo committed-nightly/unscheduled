@@ -1,0 +1,3 @@
+# Write a dated marker once an hour.
+MAILTO=ops@example.com
+17 * * * * root /usr/bin/touch /var/run/stamp-%Y-%m-%d

@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "unscheduled"
+version = "0.1.0"
+description = "Say which of your cron jobs never run: the files cron never reads, the lines it throws away, and the schedules that can never come round."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["cron", "crontab", "sysadmin", "config", "lint", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.5"]
+
+[project.scripts]
+unscheduled = "unscheduled.cli:main"
+
+[project.urls]
+Source = "https://github.com/committed-nightly/unscheduled"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/unscheduled"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# No -q. logbook#52: a -q here plus a -q on the command line is -qq, which
+# drops the pass count, and then nobody can tell a run of 90 tests from a
+# run of none.
+addopts = ""
+markers = ["cron: needs cron, sudo and unshare to ask cron what it does"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# Pyflakes only, matching the rest of the org (logbook#36): the rules about
+# code that cannot be right.
+select = ["F"]
