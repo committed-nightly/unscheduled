@@ -1,0 +1,5 @@
+# Nothing wrong with this one.
+PATH=/usr/local/bin:/usr/bin:/bin
+*/5 * * * * root /usr/bin/test -x /srv/app/bin/healthcheck && /srv/app/bin/healthcheck
+0 4 * * 0 root /usr/bin/find /var/cache -type f -mtime +30 -delete
+@reboot root /usr/bin/logger "cron came up"

@@ -41,12 +41,19 @@ class Job:
 
 
 class Rejection:
-    """The one line that cost the file everything."""
+    """The one line that cost the file everything.
 
-    def __init__(self, lineno, line, reason):
+    `user_field` is the word cron read as a username, when that is what went
+    wrong. It is kept separately so a caller can tell a mistyped username
+    from a user crontab in the wrong place, which look identical in the
+    message and want opposite advice.
+    """
+
+    def __init__(self, lineno, line, reason, user_field=None):
         self.lineno = lineno
         self.line = line
         self.reason = reason
+        self.user_field = user_field
 
 
 class Crontab:
@@ -122,7 +129,8 @@ def parse(text, path="<text>", system=True, user_exists=_known_user):
         try:
             job = _parse_job(lineno, line, system, dict(env), user_exists)
         except FieldError as exc:
-            return Crontab(path, [], Rejection(lineno, line, str(exc)), len(jobs))
+            return Crontab(path, [], Rejection(
+                lineno, line, str(exc), getattr(exc, "user_field", None)), len(jobs))
         jobs.append(job)
 
     return Crontab(path, jobs, None)
@@ -163,10 +171,12 @@ def _parse_job(lineno, line, system, env, user_exists):
         user = split[0] if split else ""
         command = split[1] if len(split) > 1 else ""
         if not user_exists(user):
-            raise FieldError(
+            error = FieldError(
                 f"{user!r} is not a user on this machine -- in /etc/crontab and "
                 "/etc/cron.d the word after the time fields is a username"
             )
+            error.user_field = user
+            raise error
         command = command.strip()
         if not command:
             raise FieldError(f"nothing after the username {user!r}: no command to run")

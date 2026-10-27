@@ -1,0 +1,2 @@
+# /usr/local/bin is not on cron's PATH, and no PATH is set here.
+*/10 * * * * root collect-metrics --quiet

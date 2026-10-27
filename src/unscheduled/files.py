@@ -81,9 +81,25 @@ def run_parts_rejected(path):
     return None
 
 
-def cron_d_rejected(path):
-    """Why cron will never read this /etc/cron.d file, or None."""
+def cron_d_rejected(path, deployed=None):
+    """Why cron will never read this /etc/cron.d file, or None.
+
+    `deployed` says whether this is the real thing or a copy. The naming rule
+    applies either way -- a file called `backup.sh` in a repository will be
+    called `backup.sh` once it is installed, and will be just as ignored --
+    but mode and ownership are only meaningful where cron is going to look.
+    A checkout of a configuration repository is owned by whoever cloned it
+    and git records no mode beyond the execute bit, so judging the copy would
+    report every file in it and mean nothing. Defaults to true under /etc.
+    """
     reason = name_rejected(os.path.basename(path))
     if reason:
         return reason
-    return ownership_rejected(path)
+    if deployed is None:
+        deployed = is_deployed(path)
+    return ownership_rejected(path) if deployed else None
+
+
+def is_deployed(path):
+    """Is this path somewhere cron is actually going to look?"""
+    return os.path.realpath(path).startswith("/etc/")

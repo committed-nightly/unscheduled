@@ -84,6 +84,13 @@ def resolvable(command, path_value):
     return shutil.which(first, path=path_value) is not None
 
 
+def _looks_like_a_command(word):
+    """Is this word more plausibly a program than a username?"""
+    if "/" in word:
+        return True
+    return word in SHELL_BUILTINS or shutil.which(word, path=CRON_DEFAULT_PATH) is not None
+
+
 def _command_findings(path, job):
     """Findings about the command, after cron has had its way with it."""
     out = []
@@ -152,6 +159,16 @@ def analyse_crontab(path, text, system=True, user_exists=None):
         if lost:
             tail = (f" -- and it takes the {lost} job{'s' if lost != 1 else ''} cron "
                     "had already read in this file with it")
+        # A user crontab read as a system one fails on the username, because
+        # the first word of the command is sitting where the username goes.
+        # Only say so when the word actually looks like a command: nearly
+        # every mistyped username also parses as a user crontab, and
+        # suggesting --user for all of them would make the hint worthless.
+        suspect = table.rejection.user_field
+        if system and suspect and _looks_like_a_command(suspect):
+            if parse(text, path=path, system=False, **kwargs).rejection is None:
+                tail += (". This file parses cleanly as a user crontab, which has no "
+                         "username field -- if that is what it is, pass --user")
         return [Finding(
             "file-rejected", DEAD, path, table.rejection.lineno,
             f"cron refuses the whole file over this line: {table.rejection.reason}{tail}",
@@ -199,8 +216,15 @@ def is_system_crontab(path):
 
 
 def is_run_parts_dir(path):
-    real = os.path.realpath(path)
-    return any(real == os.path.realpath(d) for d in RUN_PARTS_DIRS)
+    """Is this a directory of scripts rather than a directory of crontabs?
+
+    Matched on the name, not only on the absolute path, so that a copy of a
+    machine's cron.daily in a repository is read as what it is. The two kinds
+    of directory have different rules -- these files have to be executable --
+    and guessing wrong gives every file in it the wrong verdict.
+    """
+    name = os.path.basename(os.path.normpath(os.path.realpath(path)))
+    return name in {os.path.basename(d) for d in RUN_PARTS_DIRS}
 
 
 def audit_paths(paths, system=None, audit=None):

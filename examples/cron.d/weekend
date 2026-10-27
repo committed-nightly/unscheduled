@@ -1,0 +1,6 @@
+# Take a dump of the database at the weekend.
+#
+# The schedule reads correctly in English and expands to nothing: cron does
+# not wrap a range round the end of a field, so SAT-SUN is Saturday to
+# Sunday going backwards, which is no days at all. SAT,SUN is what works.
+0 3 * * SAT-SUN root /usr/bin/pg_dump -f /srv/backup/db.sql
