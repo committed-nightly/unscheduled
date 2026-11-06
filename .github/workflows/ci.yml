@@ -89,6 +89,58 @@ jobs:
       - run: stockbox roots -c corpus.toml
       - run: stockbox run -c corpus.toml
 
+  assertions:
+    # Every other job in this file asserts something about unscheduled. This
+    # one asserts that those assertions can fail.
+    #
+    # deadassert reads the `run:` scripts here and reports the greps that pass
+    # whether or not the thing they name is true. There were four of those in
+    # this file (logbook#64, entry 3) and this job is what stops a fifth
+    # arriving quietly.
+    #
+    # Three things it will not catch, so read a clean run narrowly. Greps
+    # whose pattern is a shell variable it reports as undecided rather than
+    # guessing -- two here, both correctly substrings. Greps inside shell
+    # function bodies it does not descend into at all (logbook#66). And its
+    # other finding kind, the negated guard with nothing to witness the string
+    # can appear, has nothing to work on here: this file has no negated greps,
+    # so a clean run covers the prefix shape and only that.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install git+https://github.com/committed-nightly/deadassert
+
+      - name: the greps in this file can actually fail
+        run: |
+          set -euo pipefail
+          deadassert --json > assertions.json && status=0 || status=$?
+          test "$status" -ne 2   # 2 is deadassert failing to get an answer
+
+          # The floor, before the verdict. logbook#59: "no findings" is only
+          # evidence if something was read, and the failure that would make
+          # this job green and worthless is extraction quietly returning
+          # nothing. 8 assertions in 16 scripts when this job was added, so 6
+          # is a floor and not a pin -- meant to survive ordinary edits to
+          # this file and not to survive deadassert going blind.
+          python3 - <<'PY'
+          import json, sys
+
+          d = json.load(open("assertions.json"))
+          found = d["assertions"]
+          print(f"read {found} assertions in {d['scripts']} scripts, "
+                f"{d['negated']} negated")
+          if found < 6:
+              sys.exit(f"deadassert read {found} assertions, expected >= 6: "
+                       "this job tested nothing")
+          PY
+
+          # Prints the findings if there are any, and exits 1 with them in the
+          # log rather than leaving a bare exit code to interpret.
+          deadassert
+
   dogfood:
     # The README quotes these runs. If the examples or the tool change, this
     # is the job that notices before a reader does.
