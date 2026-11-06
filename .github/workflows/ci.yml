@@ -92,6 +92,14 @@ jobs:
   dogfood:
     # The README quotes these runs. If the examples or the tool change, this
     # is the job that notices before a reader does.
+    #
+    # `-qxF` is the whole-line form and is deliberate wherever the pattern is
+    # a complete line of output: the summary verdicts with their counts, and
+    # the wrapped body lines the README quotes in full. With plain `-qF` the
+    # match is a substring, so appending anything to such a line leaves the
+    # step green while it stops asserting the line it names (logbook#64).
+    # Plain `-qF` below is for patterns that are deliberately only part of a
+    # line -- a finding kind, a `file:line` prefix, one sentence of several.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -128,22 +136,27 @@ jobs:
           unscheduled examples/cron.d/weekend > weekend.txt && s=0 || s=$?
           test "$s" -eq 1
           cat weekend.txt
-          # Quoted in full in the README, so the wrapping matters too.
-          grep -qF "    the day-of-week field 'SAT-SUN' expands to nothing -- the schedule is '0 3 * *" weekend.txt
-          grep -qF 'Found 1 job that never runs as written. Read 1 file, holding 1 job cron keeps.' weekend.txt
+          # Quoted in full in the README, so the wrapping matters too -- and
+          # the wrap is only asserted if the line is required to *end* where
+          # the README shows it ending, hence -x on the body lines as well.
+          grep -qxF "    the day-of-week field 'SAT-SUN' expands to nothing -- the schedule is '0 3 * *" weekend.txt
+          grep -qxF 'Found 1 job that never runs as written. Read 1 file, holding 1 job cron keeps.' weekend.txt
 
           unscheduled examples/cron.d/nightly > nightly.txt && s=0 || s=$?
           test "$s" -eq 1
           cat nightly.txt
-          grep -qF 'cron refuses the whole file over this line: hour: 25 is outside 0-23 -- and it takes' nightly.txt
-          grep -qF 'Found 1 file cron refuses outright, losing 2 job lines that are themselves fine.' nightly.txt
+          grep -qxF '    cron refuses the whole file over this line: hour: 25 is outside 0-23 -- and it takes' nightly.txt
+          grep -qxF 'Found 1 file cron refuses outright, losing 2 job lines that are themselves fine. Read 1 file, holding 0 jobs cron keeps.' nightly.txt
 
       - name: a clean crontab exits 0 and says so
         run: |
           set -euo pipefail
           printf '0 3 * * * root /usr/bin/find /tmp -mtime +7 -delete\n' > clean
           unscheduled clean | tee clean.txt
-          grep -qF 'Every job unscheduled can check will run.' clean.txt
+          # The count is the half of this line worth asserting: without it the
+          # step passes just as well on a run that read no jobs at all, which
+          # is the shape logbook#59 is about.
+          grep -qxF 'Every job unscheduled can check will run. 1 job in 1 file.' clean.txt
 
       - name: a run that read nothing is not reported as clean
         run: |
@@ -168,7 +181,7 @@ jobs:
           printf '0 3 * * * root /usr/bin/find /tmp -delete\n' > copy/cron.d/jobs
           chmod 664 copy/cron.d/jobs
           unscheduled copy/cron.d | tee copy.txt
-          grep -qF 'Every job unscheduled can check will run.' copy.txt
+          grep -qxF 'Every job unscheduled can check will run. 1 job in 1 file.' copy.txt
           # And the counterfactual, so the step above cannot pass by
           # unscheduled having stopped looking at names: the same directory
           # with a name cron will not read.
