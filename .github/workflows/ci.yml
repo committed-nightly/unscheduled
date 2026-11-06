@@ -122,7 +122,7 @@ jobs:
           # The floor, before the verdict. logbook#59: "no findings" is only
           # evidence if something was read, and the failure that would make
           # this job green and worthless is extraction quietly returning
-          # nothing. 8 assertions in 16 scripts when this job was added, so 6
+          # nothing. 8 assertions in 18 scripts when this job was added, so 6
           # is a floor and not a pin -- meant to survive ordinary edits to
           # this file and not to survive deadassert going blind.
           python3 - <<'PY'
